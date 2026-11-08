@@ -27,6 +27,32 @@ IPK = os.path.join(ROOT, 'FreeMyTV-webos.ipk')
 # A TV's app list and icons from webos/apps.py, for TVs that won't list their apps to the app (webOS 3).
 APP_LIST = os.path.join(ROOT, 'webos-apps.local.json')
 APP_ICONS = os.path.join(ROOT, 'webos-icons.local')
+# The screensaver's own photos (Home Settings > Screensaver > My Photos): one folder per theme, each photo already at
+# 1280 x 720 (the size webOS 3 draws apps at; a phone's 12 MP photo would take ~48 MB of the TV's memory decoded).
+SAVER_PHOTOS = os.path.join(ROOT, 'saver-photos.local')
+
+
+def saver_photos():
+    """(the photos' paths in the app, the themes taking turns; {path in the app: bytes}), or ([], {}) without any."""
+    if not os.path.isdir(SAVER_PHOTOS):
+        return [], {}
+    themes = []
+    for theme in sorted(os.listdir(SAVER_PHOTOS)):
+        folder = os.path.join(SAVER_PHOTOS, theme)
+        if os.path.isdir(folder):
+            names = [n for n in sorted(os.listdir(folder)) if n.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            if names:
+                themes.append([(theme, n) for n in names])
+    order, files = [], {}
+    for i in range(max([len(t) for t in themes] or [0])):
+        for t in themes:
+            if i < len(t):
+                theme, name = t[i]
+                path = 'saver/%s/%s' % (theme, name)
+                with open(os.path.join(SAVER_PHOTOS, theme, name), 'rb') as f:
+                    files[path] = f.read()
+                order.append(path)
+    return order, files
 
 
 def tv_apps():
@@ -128,8 +154,12 @@ def build(preview, config, generic=False, hd=False):
     apps, icons = ([], {}) if generic else tv_apps()   # one TV's list never goes in a release
     if apps:
         config = dict(config, installedApps=apps)
+    photos, photo_files = ([], {}) if generic else saver_photos()   # one person's photos never go in a release
+    if photos:
+        config = dict(config, saverPhotos=photos)
     app = webapp.files(config, 'webos/build.py')
     app.update(icons)
+    app.update(photo_files)
     for name in ('appinfo.json', 'icon.png', 'largeIcon.png'):
         with open(os.path.join(ROOT, 'webos', name), 'rb') as f:
             app[name] = f.read()
@@ -178,6 +208,9 @@ def build(preview, config, generic=False, hd=False):
     print('Built %s (%s %s, %d KB%s)' % (os.path.basename(IPK), app_id, version, len(data) // 1024, ', 1280 x 720' if hd else ''))
     if apps:
         print('With the TV\'s app list from webos/apps.py (%d apps).' % len(apps))
+    if photos:
+        print('With %d screensaver photos from saver-photos.local (%d KB).'
+              % (len(photos), sum(len(d) for d in photo_files.values()) // 1024))
     if not config['tmdbKey']:
         print('No TMDB key built in: the picks come once one is typed on the TV (Home Settings > TMDB key).')
 

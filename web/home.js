@@ -443,6 +443,7 @@
 
   // MARK: - Top: title, tabs, buttons, quotes
 
+  // One row that mixes movies and shows: the tabs stay in the page but hidden (home.css), and focus never goes to them.
   var TAB_KIND = [null, 'movie', 'tv'];
 
   function renderTop() {
@@ -552,6 +553,19 @@
     };
     img.src = url;
   }
+
+  // tv.js marks TVs whose GPU or memory can't spare shadows and most animations.
+  var LITE = /\blite\b/.test(document.documentElement.className);
+
+  // While nobody touches the remote and the focus isn't on the picks, the wide pick moves on by itself.
+  var ROTATE_MS = 8000;
+  setInterval(function () {
+    if (document.hidden || saverOn || ambientOn || sheetOpen() || cards.length < 2) return;
+    if (st.zone === Z.CARDS || Date.now() - idleAt < ROTATE_MS) return;
+    st.card = (st.card + 1) % cards.length;
+    updateFocus();
+    followSoon();
+  }, ROTATE_MS);
 
   // As HomeView's bgFollow: the background follows the focused pick.
   var BG_FOLLOW_MS = 500, bgTimer = 0;
@@ -858,10 +872,10 @@
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
       {label: tr('Dim'), value: dimName(),
         step: function (d) { cycle('dim', ['off', 'low', 'medium', 'high', 'auto'], Prefs.dim(), d); applyDim(); }},
-      {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'),
-        step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
-      {label: tr('Picks per tab'), value: String(Prefs.cards()),
-        step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 4) % 4); renderCards(); }},
+      {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : saverMode() === 'mine' ? tr('My Photos') : tr('Photos'),
+        step: function (d) { cycle('saver', MINE.length ? ['mine', 'photos', 'clock'] : ['photos', 'clock'], saverMode(), d); }},
+      {label: tr('Number of picks'), value: String(Prefs.cards()),
+        step: function (d) { cycle('cards', [6, 10, 15], Prefs.cards(), d); renderCards(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -873,7 +887,9 @@
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
-        step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
+        step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }},
+      {label: tr('Performance panel'), toggle: Prefs.perf(),
+        step: function () { Prefs.set('perf', !Prefs.perf()); applyPerf(); }}
     ];
     var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dollar')];
     var count = Data.currency === 'BRL' ? 4 : 3;
@@ -1460,17 +1476,17 @@
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
-          else { st.zone = Z.TOP; st.top = Data.hasKey() ? st.tab : 3; }
+          else { st.zone = Z.TOP; st.top = 3; }
         }
         break;
       case Z.CARDS:
         if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
-        else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
+        else if (dy < 0) { st.zone = Z.TOP; st.top = 3; }
         else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(5, st.top + dx));   // without the picks the tabs can't hold focus
+          st.top = Math.max(3, Math.min(5, st.top + dx));   // the tabs are hidden: focus stays on the round buttons
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
@@ -1575,9 +1591,16 @@
     try { localStorage.setItem('fmtv.night', night ? 'true' : 'false'); } catch (e) {}   // for index.html, next start
   }
 
-  var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, saverPick = null, SAVER_AFTER = 5 * 60000;
+  // The photos built into the app (webos/build.py, from saver-photos.local/), their themes taking turns; each screensaver
+  // goes on from where the last one stopped, and the first starts anywhere in the list.
+  var MINE = CONFIG.saverPhotos || [];
+  var saverOn = false, idleAt = Date.now(), saverIndex = Math.floor(Math.random() * 1000), saverTimer = 0, saverPick = null,
+    SAVER_AFTER = 5 * 60000;
+  // webOS 3 composites a moving full-screen photo at 4K at about 30 fps (tv-performance notes): there, the photos only
+  // cross-fade, with no slow zoom, so the GPU rests between changes.
+  var STILL = /\blayered\b/.test(document.documentElement.className);
 
-  /** "photos" (the picks' photos, as it always was) or "clock": what the screen shows when nobody touches it. */
+  /** "mine" (the built-in photos), "photos" (the picks' photos) or "clock": what the screen shows when nobody touches it. */
   function saverMode() { return Prefs.saver(); }
 
   /** Dim, as the person picked it: off, low, medium, high, or automatic (medium from 22:00 to 07:00). */
@@ -1599,8 +1622,9 @@
     $('dim').className = 'layer' + (level ? ' d' + level : '');
   }
 
-  /** The screensaver's photos: picks with an app on the TV. */
+  /** The screensaver's photos: the built-in ones (paths in the app), or picks with an app on the TV. */
   function saverPhotos() {
+    if (saverMode() === 'mine') return MINE;
     return Data.showcase().filter(function (p) { return p.backdrop && Data.usable(p.app); });
   }
 
@@ -1623,19 +1647,29 @@
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
-        back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.children[2].textContent = p.title;
-        saverPick = p;
-        // With Watch from the screensaver on, OK opens this title's app (any other key only closes).
-        var target = Prefs.saverWatch() ? pickTarget(p) : null;
-        hint.textContent = target ? trf('Press OK to watch on {app} · any other button to close', {app: target.app.title}) : '';
-        setTimeout(function () {
-          setClass(back, 'on', true);
-          setClass(front, 'on', false);
-          back.style.webkitTransform = back.style.transform = 'scale(1.08) translateX(-1.5%)';
-          front = back;
-        }, 60);
+        var mine = typeof p === 'string';
+        // Lite TVs (1 to 1.5 GB) get w1280: TMDB's originals reach 3840 px, about 33 MB each once decoded. The built-in
+        // photos are 1280 x 720 already (ferramentas-tv/preparar-fotos.ps1).
+        var url = mine ? p : Data.image(p.backdrop, LITE ? 'w1280' : 'original');
+        // The fade starts once the photo is loaded and decoded, so it never fades from black or pops in half-drawn.
+        var img = new Image();
+        img.onload = img.onerror = function () {
+          if (!saverOn) return;
+          back.style.backgroundImage = 'url("' + url + '")';
+          if (!STILL) back.style.webkitTransform = back.style.transform = 'scale(1.0)';
+          clock.children[2].textContent = mine ? '' : p.title;
+          saverPick = mine ? null : p;
+          // With Watch from the screensaver on, OK opens this title's app (any other key only closes).
+          var target = !mine && Prefs.saverWatch() ? pickTarget(p) : null;
+          hint.textContent = target ? trf('Press OK to watch on {app} · any other button to close', {app: target.app.title}) : '';
+          setTimeout(function () {
+            setClass(back, 'on', true);
+            setClass(front, 'on', false);
+            if (!STILL) back.style.webkitTransform = back.style.transform = 'scale(1.08) translateX(-1.5%)';
+            front = back;
+          }, 60);
+        };
+        img.src = url;
       }
       tickSaverClock(clock);
       saverTimer = setTimeout(next, 12000);
@@ -1806,10 +1840,55 @@
     loadApps(function () { renderShelf(); renderDrawer(); restInDrawer(); Data.refresh(); });
   }
 
+  // MARK: - Performance panel (Home Settings, off by default)
+
+  // Only what the page itself can read: its own frames per second, its JavaScript heap (performance.memory, Chromium
+  // only), the weather and the time. The TV's CPU and total memory are out of a Developer Mode app's reach. Counting
+  // frames keeps the page drawing every frame, so nothing runs while the panel is off or the app is in the background.
+  var perfOn = false, perfFrames = 0, perfSince = 0, perfTimer = null;
+
+  function perfFrame() {
+    if (!perfOn) return;
+    perfFrames++;
+    window.requestAnimationFrame(perfFrame);
+  }
+
+  function perfTick() {
+    var now = Date.now(), parts = [];
+    if (perfSince) parts.push(Math.round(perfFrames * 1000 / (now - perfSince)) + ' FPS');
+    perfFrames = 0;
+    perfSince = now;
+    var m = window.performance && window.performance.memory;
+    if (m && m.usedJSHeapSize) parts.push('JS ' + Math.round(m.usedJSHeapSize / 1048576) + ' MB');
+    var w = Data.weather;
+    if (w && w.temp !== undefined && w.temp !== null) parts.push(Data.degrees(w.temp));
+    parts.push(formatDate('format|h:mm', now));
+    $('perf').textContent = parts.join('  ·  ');
+  }
+
+  /** Starts or stops the panel to match Home Settings and whether the app is on screen. */
+  function applyPerf() {
+    var want = Prefs.perf() && !document.hidden;
+    setClass($('perf'), 'on', want);
+    if (want === perfOn) return;
+    perfOn = want;
+    if (want) {
+      perfFrames = 0;
+      perfSince = 0;
+      perfTick();
+      perfTimer = setInterval(perfTick, 1000);
+      window.requestAnimationFrame(perfFrame);
+    } else {
+      clearInterval(perfTimer);
+      perfTimer = null;
+    }
+  }
+
   window.addEventListener('resize', fit);
   document.addEventListener('webOSRelaunch', reopened);   // LG: opened again while running
   window.addEventListener('appcontrol', reopened);        // Samsung: the same
   document.addEventListener('visibilitychange', function () {
+    applyPerf();
     if (document.hidden) { hideSaver(); hideAmbient(); return; }
     idleAt = Date.now();
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
@@ -1823,6 +1902,7 @@
   renderTop();
   applyDim();
   tickClock();
+  applyPerf();
   loadApps(function () {
     renderAll();
     restInDrawer();

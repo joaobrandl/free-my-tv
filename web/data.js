@@ -71,16 +71,22 @@ var Prefs = (function () {
     weather: function () { return pick('weather', true); },
     /** OK on the screensaver opens the title it shows, in its app; any other key only closes it (off by default). */
     saverWatch: function () { return pick('saverWatch', false) === true; },
-    /** What the screensaver shows: 'photos' (the picks' photos, as it always has) or 'clock' (a clock and the weather). */
-    saver: function () { return pick('saver', 'photos') === 'clock' ? 'clock' : 'photos'; },
+    /** What the screensaver shows: 'mine' (the photos built into the app, CONFIG.saverPhotos, the default when there are
+     * some), 'photos' (the picks' photos) or 'clock' (a clock and the weather). */
+    saver: function () {
+      var mine = CONFIG.saverPhotos && CONFIG.saverPhotos.length > 0, v = pick('saver', mine ? 'mine' : 'photos');
+      return v === 'clock' ? 'clock' : v === 'mine' && mine ? 'mine' : 'photos';
+    },
     /** Dimming over the picture, for a dark room: 'off', 'low', 'medium', 'high' or 'auto' (medium at night). */
     dim: function () { return pick('dim', 'off'); },
     /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
+    /** A corner with the page's FPS, its JS memory, the temperature and the time (off by default). */
+    perf: function () { return pick('perf', false) === true; },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
-    /** Picks per tab: 3 (as it was) up to 6. */
-    cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 6 ? 6 : n; },
+    /** How many picks the row shows: 6, 10 (the default) or 15. */
+    cards: function () { var n = pick('cards', 10); return n < 3 ? 3 : n > 15 ? 15 : n; },
     /** Cartoons and anime out of the picks (Home Settings), or config.properties' hide_animation. */
     hideAnimation: function () { return pick('hideAnimation', CONFIG.hideAnimation === true) === true; },
     shelf: function () { return pick('shelf', null); },
@@ -505,7 +511,7 @@ var Data = (function () {
   }
 
   function sourceStamp() {
-    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '');
+    var s = 'by-service:' + KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '');
     for (var i = 0; i < SERVICES.length; i++) s += usable(SERVICES[i][1]) ? '1' : '0';
     return s;
   }
@@ -514,6 +520,44 @@ var Data = (function () {
     var t = (title || '').toLowerCase(), cut = t.indexOf(':');
     if (cut < 0) cut = t.indexOf(' - ');
     return (cut > 0 ? t.slice(0, cut) : t).replace(/^\s+|\s+$/g, '');
+  }
+
+  /** The services whose titles come first in the row, in this order; the others follow in SERVICES' order. */
+  var FAVORITES = ['max', 'netflix', 'prime', 'crunchyroll', 'disney'];
+
+  function rank(key) {
+    var f = FAVORITES.indexOf(key);
+    if (f >= 0) return f;
+    for (var i = 0; i < SERVICES.length; i++) if (SERVICES[i][1] === key) return FAVORITES.length + i;
+    return 99;
+  }
+
+  function serviceName(key) {
+    for (var i = 0; i < SERVICES.length; i++) if (SERVICES[i][1] === key) return SERVICES[i][4];
+    return '';
+  }
+
+  /** One title per service in turn (favorites first), so no service fills the row; each service's turn moves on with
+   * the hour. */
+  function spread(list, n, hour) {
+    var groups = {}, order = [], out = [], seen = {}, more = true;
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i].app || '?';
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(list[i]);
+    }
+    order.sort(function (a, b) { return rank(a) - rank(b); });
+    for (var round = 0; out.length < n && more; round++) {
+      more = false;
+      for (var k = 0; k < order.length && out.length < n; k++) {
+        var arr = groups[order[k]];
+        if (round >= arr.length) continue;
+        more = true;
+        var q = arr[(hour + round) % arr.length], f = franchise(q.title);
+        if (!seen[f]) { seen[f] = true; out.push(q); }
+      }
+    }
+    return out;
   }
 
   /** This hour's picks (Prefs.cards()): movies ("movie"), shows ("tv") or both (null). */
@@ -525,12 +569,7 @@ var Data = (function () {
       if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) list.push(p);
     }
     if (!list.length) return list;
-    var hour = Math.floor(Date.now() / 3600000), out = [], seen = {}, n = Prefs.cards();
-    for (var j = 0; j < list.length && out.length < n; j++) {
-      var q = list[(hour * n + j) % list.length], f = franchise(q.title);
-      if (!seen[f]) { seen[f] = true; out.push(q); }
-    }
-    return out;
+    return spread(list, Prefs.cards(), Math.floor(Date.now() / 3600000));
   }
 
   /** TMDB's language, as on Android: Latin American Spanish unless the TV is in Spain, and Germany's German. */
@@ -637,13 +676,6 @@ var Data = (function () {
 
   function keyOf(p) { return p.kind + ':' + p.id; }
 
-  function alternate(out, seen, a, b, max) {
-    for (var i = 0; i < Math.max(a.length, b.length) && out.length < max; i++) {
-      if (i < a.length && !seen[keyOf(a[i])]) { seen[keyOf(a[i])] = true; out.push(a[i]); }
-      if (i < b.length && out.length < max && !seen[keyOf(b[i])]) { seen[keyOf(b[i])] = true; out.push(b[i]); }
-    }
-  }
-
   /** Runs fn on each item one after the other (the TV's network is shared with what's playing). */
   function each(items, fn, done) {
     var i = 0;
@@ -653,40 +685,71 @@ var Data = (function () {
     })();
   }
 
+  /**
+   * The week's trending titles that are on the TV's apps, then each app's own most popular recent movies and shows, kept
+   * per service (spread() takes one per service in turn). Each service is asked alone, so a big one doesn't crowd out
+   * Crunchyroll or Max.
+   */
   function fetchList(done) {
-    tmdb('/watch/providers/movie?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
-      if (err) { done(err); return; }
-      var ids = [];
-      for (var i = 0; res.results && i < res.results.length; i++) {
-        var s = service(res.results[i].provider_name, res.results[i].provider_id);
-        if (s && usable(s[1])) ids.push(res.results[i].provider_id);
+    var ids = {}, failed = null;   // our service key → its TMDB provider ids in this region
+    each(['movie', 'tv'], function (kind, next) {
+      tmdb('/watch/providers/' + kind + '?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
+        if (err) failed = err;
+        for (var i = 0; !err && res.results && i < res.results.length; i++) {
+          var s = service(res.results[i].provider_name, res.results[i].provider_id), id = res.results[i].provider_id;
+          if (!s || !usable(s[1])) continue;
+          ids[s[1]] = ids[s[1]] || [];
+          if (ids[s[1]].indexOf(id) < 0) ids[s[1]].push(id);
+        }
+        next();
+      });
+    }, function () {
+      var keys = [];
+      for (var key in ids) if (ids.hasOwnProperty(key)) keys.push(key);
+      if (!keys.length) { done(failed || new Error("none of the TV's streaming apps are on TMDB (or switched on in Picks from)")); return; }
+      keys.sort(function (a, b) { return rank(a) - rank(b); });
+      var groups = {}, seen = {};
+      function put(p) {
+        if (seen[keyOf(p)]) return;
+        seen[keyOf(p)] = true;
+        (groups[p.app] = groups[p.app] || []).push(p);
       }
-      if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB (or switched on in Picks from)")); return; }
-      var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
-          + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
-          + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
-      var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
       each(['movie', 'tv'], function (kind, next) {
         tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
           var candidates = [];
-          for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
+          for (var j = 0; !e && j < r.results.length && j < 12; j++) addPick(candidates, r.results[j], kind);
           // Trending is only kept when it's on one of the TV's apps: the details say where.
           each(candidates, function (p, n) {
-            details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
+            details(p, function (de) { if (!de && p.app) put(p); n(); });
           }, next);
         });
       }, function () {
-        tmdb('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (e1, r1) {
-          for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
-          tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
-            for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
-            var list = [], seen = {};
-            alternate(list, seen, hot.movie, hot.tv, 24);
-            alternate(list, seen, fresh.movie, fresh.tv, 24);
-            if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
-            picks = list;
-            done(null);
-          });
+        each(keys, function (key, next) {
+          var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate'
+              + '&include_adult=false&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids[key].join('|'))
+              + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
+          var ask = [['tv', '/discover/tv?vote_count.gte=20&air_date.gte=' + day(-365) + common],
+                     ['movie', '/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-1095) + common]];
+          each(ask, function (a, n) {
+            tmdb(a[1], function (e, r) {
+              var got = [];
+              for (var j = 0; !e && r.results && j < r.results.length && got.length < 6; j++) addPick(got, r.results[j], a[0]);
+              for (var g = 0; g < got.length; g++) { got[g].app = key; got[g].service = serviceName(key); put(got[g]); }
+              n();
+            });
+          }, next);
+        }, function () {
+          var list = [], more = true;
+          for (var round = 0; more && list.length < 60; round++) {
+            more = false;
+            for (var k = 0; k < keys.length; k++) {
+              var arr = groups[keys[k]] || [];
+              if (round < arr.length) { list.push(arr[round]); more = true; }
+            }
+          }
+          if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
+          picks = list;
+          done(null);
         });
       });
     });
@@ -726,9 +789,9 @@ var Data = (function () {
     }
   }
 
-  /** This hour's picks for the three tabs, without repeats (the screensaver shows them too). */
+  /** This hour's picks, without repeats (the screensaver shows them too). One row, no tabs. */
   function all() {
-    var out = [], seen = {}, kinds = [null, 'movie', 'tv'];
+    var out = [], seen = {}, kinds = [null];
     for (var k = 0; k < kinds.length; k++) {
       var list = now(kinds[k]);
       for (var i = 0; i < list.length; i++) if (!seen[keyOf(list[i])]) { seen[keyOf(list[i])] = true; out.push(list[i]); }

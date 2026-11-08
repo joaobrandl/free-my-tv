@@ -21,8 +21,13 @@ var TV = (function () {
   // 1) still stutters at each move with flat alone (#461). deviceMemory (webOS 5+, Tizen 5+) is the nearest power of two,
   // so it reads 1 up to about 1.5 GB.
   var lowMemory = navigator.deviceMemory && navigator.deviceMemory <= 1;
-  if (tizen2 || ((webos || samsung) && lowMemory)) {
-    document.documentElement.className += ' lite';
+  // webOS 1 to 3 (2014-2017, Chromium 38) have no deviceMemory, and their sets have 1 to 1.5 GB: lite too.
+  var chrome = /Chrome\/(\d+)/.exec(navigator.userAgent);
+  var oldWebos = webos && !navigator.deviceMemory && chrome && parseInt(chrome[1], 10) < 53;
+  if (tizen2 || oldWebos || ((webos || samsung) && lowMemory)) {
+    // webOS 3 on a 4K set (UH6150) re-rasterized ~300 ms of tiles at each move; with each tile and pick on its own
+    // compositor layer that fell to ~8 ms, and the focus can animate again (`layered` in home.css).
+    document.documentElement.className += oldWebos ? ' lite layered' : ' lite';
   } else if (samsung && navigator.deviceMemory && navigator.deviceMemory <= 2) {
     // Samsungs up to 2 GB keep the animations but not the soft shadows of the parts that move (home.css): a 2021 Frame
     // (QE55LS03A, Tizen 6, 2 GB, ratio 1) froze for up to 360 ms on each move along the picks and dropped 78 frames in
@@ -227,6 +232,14 @@ var TV = (function () {
     ['org.jellyfin.webos', 'Jellyfin', 'icons/jellyfin.svg'], ['com.crunchyroll.webapp', 'Crunchyroll', '', '#F47521'],
     ['com.webos.app.browser', 'Web Browser', '', '#3A7BD5'], ['space.nuvio.webos', 'Nuvio TV', '', '#0E0F12']
   ];
+
+  // Some apps ship an icon that isn't the brand's logo (YouTube Ad-Free's, youtube.leanback.v4, is a traffic cone):
+  // show our bundled logo instead, keyed by app id. The id is also the official YouTube's, so this is right either way.
+  var ICON_OVERRIDE = {'youtube.leanback.v4': 'icons/youtube.png'};
+
+  function overrideIcon(app) {
+    return ICON_OVERRIDE[app.id] ? {id: app.id, title: app.title, icon: ICON_OVERRIDE[app.id], color: app.color} : app;
+  }
 
   function knownApps(done) {
     var found = [], left = KNOWN.length, sent = false;
@@ -523,7 +536,7 @@ var TV = (function () {
         for (var i = 0; i < points.length; i++) {
           var p = points[i];
           if (!p.id || p.id === self || HIDDEN.test(p.id)) continue;
-          out.push({id: p.id, title: p.title || p.id, icon: p.largeIcon || p.icon || '', color: p.bgColor || p.iconColor || ''});
+          out.push(overrideIcon({id: p.id, title: p.title || p.id, icon: p.largeIcon || p.icon || '', color: p.bgColor || p.iconColor || ''}));
         }
         return out;
       }
@@ -536,7 +549,7 @@ var TV = (function () {
         // there the list comes from the computer (webos/apps.py), built into the LG package.
         var built = (window.CONFIG && CONFIG.installedApps) || [];
         if (built.length) {
-          done(built.filter(function (a) { return a.id !== self && !HIDDEN.test(a.id); }));
+          done(built.filter(function (a) { return a.id !== self && !HIDDEN.test(a.id); }).map(overrideIcon));
           return;
         }
         var paired = false, refused = false;

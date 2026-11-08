@@ -65,6 +65,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night #sky .night { opacity: 1; }
 .night #sky .veil { background: rgba(11, 11, 13, 0.78); }
 .night #sky .lift { background: #000; }
+/* More of the focused pick's color through the veil (same layers, so no cost). */
+#sky .veil { background: rgba(245, 245, 247, 0.5); }
+.night #sky .veil { background: rgba(11, 11, 13, 0.52); }
 .drawer-open #sky .lift { opacity: 0.32; }
 .night.drawer-open #sky .lift { opacity: 0.42; }
 
@@ -577,7 +580,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #saver.on { opacity: 1; visibility: visible; -webkit-transition-delay: 0s; transition-delay: 0s; }
 #saver .photo { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background-size: cover; background-position: center; opacity: 0; -webkit-transition: opacity 2.4s, -webkit-transform 24s linear; transition: opacity 2.4s, transform 24s linear; }
 #saver .photo.on { opacity: 1; }
-#saver .shade { position: absolute; left: 0; right: 0; bottom: 0; height: 520px; background: -webkit-linear-gradient(top, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55)); background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55)); }
+/* The screen at half its brightness: a flat 50% black over the whole photo (moody and dark, still clearly a photo). One
+   flat colour, so it costs nothing to draw; the clock keeps its own glass behind it. */
+#saver .shade { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); }
 #saver .clock {
   position: absolute;
   left: 80px;
@@ -594,6 +599,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #saver .clock .date { margin-top: 10px; font-size: 34px; font-weight: 500; color: rgba(255, 255, 255, 0.82); }
 #saver .clock .title { margin-top: 18px; font-size: 26px; font-weight: 500; color: rgba(255, 255, 255, 0.65); }
 #saver .clock .hint { margin-top: 8px; font-size: 22px; color: rgba(255, 255, 255, 0.55); }
+/* The built-in photos have no title and no hint: no empty lines under the date. */
+#saver .clock .title:empty, #saver .clock .hint:empty { display: none; }
 
 /* MARK: - Toast */
 
@@ -619,11 +626,55 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 #toast.on { opacity: 1; -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
 
+/* One row of picks, movies and shows together (home.js): no tabs. */
+#tabs { display: none; }
+
+/* MARK: - Performance panel (Home Settings): flat, no shadow, so it costs nothing to draw while it changes each second. */
+
+#perf {
+  position: absolute;
+  left: 24px;
+  top: 14px;
+  padding: 6px 14px;
+  border-radius: 14px;
+  font-size: 20px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  display: none;
+  z-index: 51;
+}
+#perf.on { display: block; }
+
 /* The Magic Remote's pointer: no text selection, no outlines. */
 * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 
 /* Tizen 2 and 1 GB TVs (see tv.js): no shadows or animations; their GPUs can't keep up while the focus moves. */
 .lite * { box-shadow: none !important; -webkit-transition: none !important; transition: none !important; }
+/* webOS 3 (see tv.js): each tile and pick is its own compositor layer, so a move re-rasterizes almost nothing and what
+   moves is a transform. Measured on a 4K UH6150 (installed at 1280x720, which drew the same pixels faster): 31-43 ms
+   from key to screen along the apps (91 before), 67-93 ms along 10 picks, 60 fps at rest. Only the focused app keeps
+   its shadow; a slow zoom on the photo was left out (30 fps even at rest). */
+.layered .tile { will-change: transform; }
+/* The picks' photos are layers of a fixed size (the poster's 320 px, the backdrop's 1040 px) that the card only clips:
+   a card that changes width no longer re-rasterizes its photo at 4K (3.5 s of raster in 6 moves, then 1.2 s). The
+   row slides as one layer; the grey behind the photos and the edge glow went, since they were repainted at each move. */
+.layered #cards { will-change: transform; }
+.layered .card .layer { width: 320px; will-change: transform; }
+.layered .card .back { width: 1040px; }
+.layered .card .img { background-color: transparent; box-shadow: none !important; }
+.layered .card .img::after { display: none; }
+.layered .tile { -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.15) !important; transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.15) !important; }
+.layered .card { -webkit-transition: -webkit-transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15) !important; transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15) !important; }
+.layered #cards {
+  -webkit-transition: -webkit-transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1) !important;
+  transition: transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1) !important;
+}
+.layered .card .back { -webkit-transition: opacity 0.45s !important; transition: opacity 0.45s !important; }
+.layered #sky canvas { -webkit-transition: opacity 0.8s !important; transition: opacity 0.8s !important; }
+.layered .tile.focus { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34) !important; }
+.layered .night .tile.focus { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6) !important; }
 
 /* Samsungs up to 2 GB (see tv.js): the parts that move lose their soft shadows, which the TV repainted on every frame of
    a move, and what slides is a layer from the start, so a move starts at once. */
