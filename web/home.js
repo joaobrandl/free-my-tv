@@ -458,10 +458,13 @@
     var buttons = $('buttons');
     buttons.innerHTML = '';
     var own = Prefs.boxInput() !== 'live';
-    var defs = [[own ? 'tv' : 'live_tv', own ? boxLabel() : tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
-    for (var b = 0; b < 3; b++) {
-      var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
-      r.style.left = (1596 + 88 * b) + 'px';
+    // The screensaver's own button, before Settings: it starts the screensaver now (any key, or a real move of the
+    // Magic Remote, brings the home screen back).
+    var defs = [[own ? 'tv' : 'live_tv', own ? boxLabel() : tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')],
+      ['bedtime', tr('Screensaver')], ['settings', tr('light|Settings')]];
+    for (var b = 0; b < defs.length; b++) {
+      var r = el('button', 'round' + (b === defs.length - 1 ? ' last' : ''), buttons);
+      r.style.left = (1772 - 88 * (defs.length - 1 - b)) + 'px';   // the last one keeps its place at the right
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
@@ -557,8 +560,9 @@
   // tv.js marks TVs whose GPU or memory can't spare shadows and most animations.
   var LITE = /\blite\b/.test(document.documentElement.className);
 
-  // While nobody touches the remote and the focus isn't on the picks, the wide pick moves on by itself.
-  var ROTATE_MS = 8000;
+  // While nobody touches the remote and the focus isn't on the picks, the wide pick moves on by itself: every 20 s, calm
+  // enough not to pull the eye while choosing an app (and one 4K repaint of the row and background each time).
+  var ROTATE_MS = 20000;
   setInterval(function () {
     if (document.hidden || saverOn || ambientOn || sheetOpen() || cards.length < 2) return;
     if (st.zone === Z.CARDS || Date.now() - idleAt < ROTATE_MS) return;
@@ -874,6 +878,8 @@
         step: function (d) { cycle('dim', ['off', 'low', 'medium', 'high', 'auto'], Prefs.dim(), d); applyDim(); }},
       {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : saverMode() === 'mine' ? tr('My Photos') : tr('Photos'),
         step: function (d) { cycle('saver', MINE.length ? ['mine', 'photos', 'clock'] : ['photos', 'clock'], saverMode(), d); }},
+      {label: tr('Screensaver after'), value: trf('{n} min', {n: Prefs.saverAfter()}),
+        step: function (d) { cycle('saverAfter', Prefs.saverAfterChoices, Prefs.saverAfter(), d); }},
       {label: tr('Number of picks'), value: String(Prefs.cards()),
         step: function (d) { cycle('cards', [6, 10, 15], Prefs.cards(), d); renderCards(); }},
       {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
@@ -1419,6 +1425,7 @@
         if (st.top < 3) return;
         if (st.top === 3) { var box2 = boxTV(); if (box2) launcher(box2.id, boxLabel())(); }
         else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        else if (st.top === 5) startSaverNow();
         else openSettings();
         return;
       case Z.CARDS:
@@ -1475,7 +1482,8 @@
         if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
+          // Up lands on the pick that's wide now (the row turns by itself), not on the one nearest the app: no jump.
+          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(st.card, cards.length - 1); }
           else { st.zone = Z.TOP; st.top = 3; }
         }
         break;
@@ -1486,7 +1494,8 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(3, Math.min(5, st.top + dx));   // the tabs are hidden: focus stays on the round buttons
+          // The tabs are hidden: focus stays on the round buttons (3 to 6: TV, HDMI, screensaver, settings).
+          st.top = Math.max(3, Math.min(2 + $('buttons').children.length, st.top + dx));
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
@@ -1594,8 +1603,13 @@
   // The photos built into the app (webos/build.py, from saver-photos.local/), their themes taking turns; each screensaver
   // goes on from where the last one stopped, and the first starts anywhere in the list.
   var MINE = CONFIG.saverPhotos || [];
-  var saverOn = false, idleAt = Date.now(), saverIndex = Math.floor(Math.random() * 1000), saverTimer = 0, saverPick = null,
-    SAVER_AFTER = 5 * 60000;
+  var saverOn = false, idleAt = Date.now(), saverIndex = Math.floor(Math.random() * 1000), saverTimer = 0, saverPick = null;
+  // When the screensaver or the clock last started, which one is current (a photo still loading from an earlier one is
+  // dropped), and where the pointer was when it started (see the mousemove listener).
+  var saverShownAt = 0, saverSession = 0, pointerFrom = null;
+
+  /** How long nobody touches the remote before the screensaver starts: Home Settings > Screensaver after. */
+  function saverAfter() { return Prefs.saverAfter() * 60000; }
   // webOS 3 composites a moving full-screen photo at 4K at about 30 fps (tv-performance notes): there, the photos only
   // cross-fade, with no slow zoom, so the GPU rests between changes.
   var STILL = /\blayered\b/.test(document.documentElement.className);
@@ -1629,9 +1643,11 @@
   }
 
   function showSaver() {
-    var photos = saverPhotos();
+    var photos = saverPhotos(), session = ++saverSession, failures = 0;
     saverOn = true;
     saverPick = null;
+    saverShownAt = Date.now();
+    pointerFrom = null;
     var s = $('saver');
     s.innerHTML = '';
     var a = el('div', 'photo', s), b = el('div', 'photo', s);
@@ -1653,8 +1669,16 @@
         var url = mine ? p : Data.image(p.backdrop, LITE ? 'w1280' : 'original');
         // The fade starts once the photo is loaded and decoded, so it never fades from black or pops in half-drawn.
         var img = new Image();
-        img.onload = img.onerror = function () {
-          if (!saverOn) return;
+        // A photo that doesn't load is skipped a second later instead of fading to black for 12 s; when none loads
+        // (the picks' photos with no internet), only the clock stays, and it tries again at the usual pace.
+        img.onerror = function () {
+          if (!saverOn || session !== saverSession || ++failures >= photos.length) return;
+          clearTimeout(saverTimer);
+          saverTimer = setTimeout(next, 1000);
+        };
+        img.onload = function () {
+          if (!saverOn || session !== saverSession) return;
+          failures = 0;
           back.style.backgroundImage = 'url("' + url + '")';
           if (!STILL) back.style.webkitTransform = back.style.transform = 'scale(1.0)';
           clock.children[2].textContent = mine ? '' : p.title;
@@ -1694,8 +1718,15 @@
 
   var ambientOn = false, ambientTimer = 0;
 
+  /** The screensaver (or the clock) now: its button on the top row. */
+  function startSaverNow() {
+    if (saverMode() === 'clock') showAmbient(); else showSaver();
+  }
+
   function showAmbient() {
     if (ambientOn) return;
+    saverShownAt = Date.now();
+    pointerFrom = null;
     var a = $('ambient');
     a.innerHTML = '';
     var shift = el('div', 'shift', a);
@@ -1755,7 +1786,18 @@
     else return;
     e.preventDefault();
   });
-  document.addEventListener('mousemove', function () { poke(); });
+  // The Magic Remote's pointer trembles in a resting hand. On the screensaver (or the clock), the first second after it
+  // starts (its button was just clicked) and moves under 40 px from where the pointer then was don't count: a real move
+  // of the remote brings the home screen back. Elsewhere any move counts as someone there.
+  document.addEventListener('mousemove', function (e) {
+    if (saverOn || ambientOn) {
+      if (Date.now() - saverShownAt < 1000) return;
+      if (!pointerFrom) { pointerFrom = {x: e.clientX, y: e.clientY}; return; }
+      if (Math.abs(e.clientX - pointerFrom.x) + Math.abs(e.clientY - pointerFrom.y) < 40) return;
+    }
+    pointerFrom = null;
+    poke();
+  });
 
   /**
    * In a text field, the keys type (← → move in the text, Delete erases). OK or the keyboard's Done searches (or saves); Back,
@@ -1918,7 +1960,7 @@
     applyDim();   // automatic: medium from 22:00, off again at 07:00
     // Only on screen: behind another app nobody presses our keys, so idleAt grows old and the photos would turn (and
     // decode) every 12 s for nothing while Netflix or YouTube plays.
-    if (!document.hidden && !saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {
+    if (!document.hidden && !saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > saverAfter()) {
       if (saverMode() === 'clock') showAmbient(); else showSaver();
     }
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));

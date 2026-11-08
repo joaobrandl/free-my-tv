@@ -6,6 +6,7 @@
     python3 webos/build.py --config other.properties
     python3 webos/build.py --generic  # without config.properties: the TV's time zone picks the city (releases)
     python3 webos/build.py --hd       # at 1280 x 720, for LG TVs that aren't 4K (install.py does this by itself)
+    python3 webos/build.py --langs pt,en  # only these languages' text (a lighter start on old TVs)
 
 Reads config.properties (the same file as the Android build), puts the web home screen (web/), the app's symbols
 and font (app/assets), the coin logos (app/res/drawable) and webos/appinfo.json together, and packs them the way LG's
@@ -147,7 +148,7 @@ def with_resolution(ipk, size):
     return ar(members)
 
 
-def build(preview, config, generic=False, hd=False):
+def build(preview, config, generic=False, hd=False, languages=None):
     with open(os.path.join(ROOT, 'webos', 'appinfo.json'), encoding='utf-8') as f:
         info = json.load(f)
     app_id, version = info['id'], info['version']
@@ -157,7 +158,7 @@ def build(preview, config, generic=False, hd=False):
     photos, photo_files = ([], {}) if generic else saver_photos()   # one person's photos never go in a release
     if photos:
         config = dict(config, saverPhotos=photos)
-    app = webapp.files(config, 'webos/build.py')
+    app = webapp.files(config, 'webos/build.py', languages)
     app.update(icons)
     app.update(photo_files)
     for name in ('appinfo.json', 'icon.png', 'largeIcon.png'):
@@ -170,10 +171,14 @@ def build(preview, config, generic=False, hd=False):
     entries = [('usr', None), ('usr/palm', None), ('usr/palm/applications', None), (base, None)]
     dirs = set()
     for path in sorted(app):
-        parent = os.path.dirname(path)
-        if parent and parent not in dirs:
+        # Every folder on the way, outermost first: LG's installer silently leaves out a file whose folders aren't all
+        # in the archive (saver/naruto/01.jpg needs saver and saver/naruto; one level, as icons/, always worked).
+        chain, parent = [], os.path.dirname(path)
+        while parent and parent not in dirs:
             dirs.add(parent)
-            entries.append((base + '/' + parent, None))
+            chain.append(parent)
+            parent = os.path.dirname(parent)
+        entries += [(base + '/' + d, None) for d in reversed(chain)]
         entries.append((base + '/' + path, app[path]))
     # The JS service that reaches the TV's remote control API where the page's origin is refused (webos/service).
     service_id = app_id + '.service'
@@ -216,4 +221,6 @@ def build(preview, config, generic=False, hd=False):
 
 
 if __name__ == '__main__':
-    build('--preview' in sys.argv, webapp.config_from_args(sys.argv[1:]), '--generic' in sys.argv, '--hd' in sys.argv)
+    # --langs pt,en: only those catalogues (the TV parses less at each start; the language picker lists only them).
+    langs = sys.argv[sys.argv.index('--langs') + 1].split(',') if '--langs' in sys.argv else None
+    build('--preview' in sys.argv, webapp.config_from_args(sys.argv[1:]), '--generic' in sys.argv, '--hd' in sys.argv, langs)

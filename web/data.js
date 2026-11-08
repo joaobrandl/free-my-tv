@@ -63,6 +63,7 @@ var Prefs = (function () {
   try { v = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
   function save() { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) {} }
   function pick(name, fallback) { return v[name] === undefined ? fallback : v[name]; }
+  var SAVER_AFTER = [2, 5, 10, 15];   // minutes, for saverAfter
   return {
     version: 0,
     language: function () { return pick('language', CONFIG.language || 'auto'); },
@@ -77,6 +78,9 @@ var Prefs = (function () {
       var mine = CONFIG.saverPhotos && CONFIG.saverPhotos.length > 0, v = pick('saver', mine ? 'mine' : 'photos');
       return v === 'clock' ? 'clock' : v === 'mine' && mine ? 'mine' : 'photos';
     },
+    /** Minutes without the remote before the screensaver starts (Home Settings > Screensaver after); 5 by default. */
+    saverAfter: function () { var n = pick('saverAfter', 5); return SAVER_AFTER.indexOf(n) >= 0 ? n : 5; },
+    saverAfterChoices: SAVER_AFTER,
     /** Dimming over the picture, for a dark room: 'off', 'low', 'medium', 'high' or 'auto' (medium at night). */
     dim: function () { return pick('dim', 'off'); },
     /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
