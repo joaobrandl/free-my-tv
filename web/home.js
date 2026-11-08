@@ -1608,6 +1608,9 @@
   // dropped), and where the pointer was when it started (see the mousemove listener).
   var saverShownAt = 0, saverSession = 0, pointerFrom = null;
 
+  // Each photo stays 30 s, with a 4 s cross-fade (home.css) into the next.
+  var SAVER_PHOTO_MS = 30000;
+
   /** How long nobody touches the remote before the screensaver starts: Home Settings > Screensaver after. */
   function saverAfter() { return Prefs.saverAfter() * 60000; }
   // webOS 3 composites a moving full-screen photo at 4K at about 30 fps (tv-performance notes): there, the photos only
@@ -1665,7 +1668,7 @@
       if (p) {
         var mine = typeof p === 'string';
         // Lite TVs (1 to 1.5 GB) get w1280: TMDB's originals reach 3840 px, about 33 MB each once decoded. The built-in
-        // photos are 1280 x 720 already (ferramentas-tv/preparar-fotos.ps1).
+        // photos are 1920 x 1080 already (ferramentas-tv/preparar-fotos.ps1).
         var url = mine ? p : Data.image(p.backdrop, LITE ? 'w1280' : 'original');
         // The fade starts once the photo is loaded and decoded, so it never fades from black or pops in half-drawn.
         var img = new Image();
@@ -1696,7 +1699,7 @@
         img.src = url;
       }
       tickSaverClock(clock);
-      saverTimer = setTimeout(next, 12000);
+      saverTimer = setTimeout(next, SAVER_PHOTO_MS);
     }
     setClass(s, 'on', true);
     next();
@@ -1704,6 +1707,8 @@
 
   function tickSaverClock(clock) {
     var d = new Date();
+    // Darkened only from 18:00 to 08:00 (home.css, #saver.dark): by day the photos show at full brightness.
+    setClass($('saver'), 'dark', d.getHours() >= 18 || d.getHours() < 8);
     clock.firstChild.textContent = formatDate('format|h:mm', d.getTime());
     clock.children[1].textContent = formatDate('format|EEEE, MMMM d', d.getTime());
   }

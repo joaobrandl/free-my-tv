@@ -29,7 +29,7 @@ IPK = os.path.join(ROOT, 'FreeMyTV-webos.ipk')
 APP_LIST = os.path.join(ROOT, 'webos-apps.local.json')
 APP_ICONS = os.path.join(ROOT, 'webos-icons.local')
 # The screensaver's own photos (Home Settings > Screensaver > My Photos): one folder per theme, each photo already at
-# 1280 x 720 (the size webOS 3 draws apps at; a phone's 12 MP photo would take ~48 MB of the TV's memory decoded).
+# 1920 x 1080 (ferramentas-tv/preparar-fotos.ps1; a phone's 12 MP photo would take ~48 MB of the TV's memory decoded).
 SAVER_PHOTOS = os.path.join(ROOT, 'saver-photos.local')
 
 

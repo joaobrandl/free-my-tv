@@ -582,11 +582,13 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 #saver { background: #000; opacity: 0; visibility: hidden; -webkit-transition: opacity 1.2s, visibility 0s 1.2s; transition: opacity 1.2s, visibility 0s 1.2s; }
 #saver.on { opacity: 1; visibility: visible; -webkit-transition-delay: 0s; transition-delay: 0s; }
-#saver .photo { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background-size: cover; background-position: center; opacity: 0; -webkit-transition: opacity 2.4s, -webkit-transform 24s linear; transition: opacity 2.4s, transform 24s linear; }
+#saver .photo { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background-size: cover; background-position: center; opacity: 0; -webkit-transition: opacity 4s ease-in-out, -webkit-transform 24s linear; transition: opacity 4s ease-in-out, transform 24s linear; }
 #saver .photo.on { opacity: 1; }
 /* The screen at half its brightness: a flat 50% black over the whole photo (moody and dark, still clearly a photo). One
    flat colour, so it costs nothing to draw; the clock keeps its own glass behind it. */
-#saver .shade { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); }
+#saver .shade { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); opacity: 0; -webkit-transition: opacity 3s; transition: opacity 3s; }
+/* Only from 18:00 to 08:00 (home.js, .dark): by day the photos show at full brightness. */
+#saver.dark .shade { opacity: 1; }
 #saver .clock {
   position: absolute;
   left: 80px;
@@ -599,6 +601,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35), inset 0 1.5px 0 rgba(255, 255, 255, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
   white-space: nowrap;
 }
+/* By day the photos aren't darkened: a soft shadow keeps the white clock readable on a bright photo. */
+#saver .clock { text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45); }
 #saver .clock .time { font-size: 150px; font-weight: 300; line-height: 1; letter-spacing: -0.02em; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
 #saver .clock .date { margin-top: 10px; font-size: 34px; font-weight: 500; color: rgba(255, 255, 255, 0.82); }
 #saver .clock .title { margin-top: 18px; font-size: 26px; font-weight: 500; color: rgba(255, 255, 255, 0.65); }
@@ -656,6 +660,12 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* Tizen 2 and 1 GB TVs (see tv.js): no shadows or animations; their GPUs can't keep up while the focus moves. */
 .lite * { box-shadow: none !important; -webkit-transition: none !important; transition: none !important; }
+/* ...except the screensaver's fades: they happen when nobody is using the TV, two layers at a time, and without them
+   each photo cut in at once ("seca", as the owner of a 2016 LG put it). */
+.lite #saver { -webkit-transition: opacity 1.2s, visibility 0s 1.2s !important; transition: opacity 1.2s, visibility 0s 1.2s !important; }
+.lite #saver.on { -webkit-transition: opacity 1.2s !important; transition: opacity 1.2s !important; }
+.lite #saver .photo { -webkit-transition: opacity 4s ease-in-out !important; transition: opacity 4s ease-in-out !important; }
+.lite #saver .shade { -webkit-transition: opacity 3s !important; transition: opacity 3s !important; }
 /* webOS 3 (see tv.js): each tile and pick is its own compositor layer, so a move re-rasterizes almost nothing and what
    moves is a transform. Measured on a 4K UH6150 (installed at 1280x720, which drew the same pixels faster): 31-43 ms
    from key to screen along the apps (91 before), 67-93 ms along 10 picks, 60 fps at rest. Only the focused app keeps
