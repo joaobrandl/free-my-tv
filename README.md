@@ -15,6 +15,26 @@ Open source. Built with Claude Code. One button to undo.
 
 </div>
 
+> [!NOTE]
+> **Esta é uma versão adaptada** do [Free My TV original](https://github.com/simbasjungles/free-my-tv) para uma LG
+> 60UH6150 de 2016 (webOS 3.4.3), instalada pelo Developer Mode da LG, sem root. As mudanças estão na branch
+> `minha-tv-lg`; o resto deste README é o original, em inglês.
+>
+> **O que muda, medido na TV:**
+> - **Tela de descanso com fotos próprias**, convertidas para 1920×1080; escurece 50% só das 18h às 8h; troca suave
+>   (4 s) a cada 30 s; botão de lua na barra de cima para abrir na hora; tempo ajustável (2, 5, 10 ou 15 min).
+> - **Fonte em pesos fixos (WOFF2):** o navegador do webOS 3 (Chromium 38) ignora os pesos da fonte variável e
+>   desenhava tudo igual (medido: 1102 px em 200, 400 e 700); agora o negrito é de verdade.
+> - **Navegação fluida em 4K no webOS 3:** cada bloco numa camada própria (`.layered`); 40–46 ms do botão à tela.
+> - **Correções:** a tela de descanso não liga com o app escondido atrás de outro; o instalador não cria arquivos
+>   `nul` no Windows e confere a identidade da TV; a chave é reaproveitada quando o IP da TV muda; o pacote lista
+>   todas as pastas (o instalador da LG descartava em silêncio as fotos em subpastas).
+> - **Gosto pessoal** (não serve para todo mundo): uma fileira de 10 sugestões com Max, Netflix, Prime, Crunchyroll e
+>   Disney primeiro; pacote só com português (`webos/build.py --langs pt,en`).
+>
+> Os scripts de Windows usados com esta versão (atualizar com um clique, preparar as fotos, achar a TV, renovar o
+> Developer Mode) estão em [ferramentas-tv-lg](https://github.com/joaobrandl/ferramentas-tv-lg).
+
 ## What you get
 
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
